@@ -1,0 +1,20 @@
+# Compiled class files
+bin/
+*.class
+
+# Eclipse IDE files
+.classpath
+.project
+.settings/
+
+# IDE files
+.idea/
+*.iml
+.vscode/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Data files (optional - remove if you want to track)
+expenses.txt
