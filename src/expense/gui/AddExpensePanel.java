@@ -22,6 +22,7 @@ public class AddExpensePanel extends JPanel {
     private JTextField customCategoryField;
     private JTextField amountField;
     private JTextField dateField;
+    private JTextField descriptionField;
     private JLabel messageLabel;
 
     private static final String[] CATEGORIES = {
@@ -103,6 +104,14 @@ public class AddExpensePanel extends JPanel {
         dateField.setText(LocalDate.now().toString());
         card.add(dateField, gbc);
 
+        // Description (optional)
+        row++;
+        gbc.gridx = 0; gbc.gridy = row;
+        card.add(ComponentFactory.label("Description (optional)"), gbc);
+        gbc.gridx = 1;
+        descriptionField = ComponentFactory.textField(22);
+        card.add(descriptionField, gbc);
+
         // Message
         row++;
         gbc.gridx = 0; gbc.gridy = row; gbc.gridwidth = 2;
@@ -172,7 +181,8 @@ public class AddExpensePanel extends JPanel {
                 return;
             }
 
-            service.addExpense(title, category, amount, date);
+            String description = descriptionField.getText().trim();
+            service.addExpense(title, category, amount, description, date);
             showMessage("Expense added successfully!", false);
             clearFields();
 
@@ -188,6 +198,7 @@ public class AddExpensePanel extends JPanel {
         customCategoryField.setEnabled(false);
         amountField.setText("");
         dateField.setText(LocalDate.now().toString());
+        descriptionField.setText("");
         messageLabel.setText(" ");
     }
 

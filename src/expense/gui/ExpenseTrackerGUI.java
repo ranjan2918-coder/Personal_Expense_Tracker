@@ -1,5 +1,6 @@
 package expense.gui;
 
+import expense.database.DBConnection;
 import expense.service.ExpenseService;
 
 import javax.swing.*;
@@ -8,13 +9,13 @@ import java.awt.*;
 /**
  * Main GUI class for Personal Expense Tracker.
  *
- * This is the entry point of the application – right-click this file in
- * Eclipse and choose "Run As -> Java Application" to launch.
+ * Launch sequence:
+ *   main() -> LoginPanel -> ExpenseTrackerGUI (after successful login)
  *
  * The window uses a CardLayout to switch between screens:
  *   Dashboard | Add Expense | View All | Search | Monthly Report | Budget
  *
- * All screens are connected to the existing ExpenseService backend.
+ * All screens are connected to the ExpenseService backend (MySQL via JDBC).
  */
 public class ExpenseTrackerGUI extends JFrame {
 
@@ -23,12 +24,12 @@ public class ExpenseTrackerGUI extends JFrame {
     private final JPanel mainPanel;
 
     // Screen instances (kept so we can refresh them)
-    private DashboardPanel dashboardPanel;
-    private AddExpensePanel addExpensePanel;
+    private DashboardPanel    dashboardPanel;
+    private AddExpensePanel   addExpensePanel;
     private ViewExpensesPanel viewExpensesPanel;
     private SearchExpensePanel searchExpensePanel;
     private MonthlyReportPanel monthlyReportPanel;
-    private BudgetPanel budgetPanel;
+    private BudgetPanel       budgetPanel;
 
     // Screen name constants used by all panels
     public static final String DASHBOARD = "DASHBOARD";
@@ -42,43 +43,59 @@ public class ExpenseTrackerGUI extends JFrame {
     //  MAIN METHOD – Run this class as "Run As -> Java Application"
     // ================================================================
     public static void main(String[] args) {
-        // Ensure all Swing work happens on the Event Dispatch Thread
         SwingUtilities.invokeLater(() -> {
             AppTheme.applyGlobalDefaults();
-            new ExpenseTrackerGUI();
+            // Check DB connectivity first; show friendly error if it fails
+            ExpenseService svc = new ExpenseService();
+            if (!DBConnection.testConnection()) {
+                JOptionPane.showMessageDialog(null,
+                    "Cannot connect to MySQL database.\n\n" +
+                    "Please check:\n" +
+                    "  1. MySQL server is running.\n" +
+                    "  2. Database 'personal_expense_tracker' exists.\n" +
+                    "  3. Username/password in DBConnection.java are correct.\n" +
+                    "  4. mysql-connector-j-*.jar is on your build path.\n\n" +
+                    "See SQL_SETUP.sql for setup instructions.",
+                    "Database Connection Error",
+                    JOptionPane.ERROR_MESSAGE);
+                System.exit(1);
+            }
+            new LoginPanel(svc);
         });
     }
 
     // ================================================================
-    //  Constructor – builds the entire GUI window
+    //  Constructor called by LoginPanel after authentication
     // ================================================================
-    public ExpenseTrackerGUI() {
-        super("Personal Expense Tracker");
+    public ExpenseTrackerGUI(ExpenseService service, String username) {
+        super("Personal Expense Tracker  —  Welcome, " + username);
+        this.service = service;
 
-        // Create the shared backend service (loads saved expenses from file)
-        this.service = new ExpenseService();
+        setDefaultCloseOperation(JFrame.DO_NOTHING_ON_CLOSE);
+        addWindowListener(new java.awt.event.WindowAdapter() {
+            @Override
+            public void windowClosing(java.awt.event.WindowEvent e) {
+                exitApplication();
+            }
+        });
 
-        setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
         setSize(1050, 720);
         setMinimumSize(new Dimension(900, 600));
-        setLocationRelativeTo(null); // centre on screen
+        setLocationRelativeTo(null);
 
-        // CardLayout lets us switch between screens in the same window
         cardLayout = new CardLayout();
-        mainPanel = new JPanel(cardLayout);
+        mainPanel  = new JPanel(cardLayout);
         mainPanel.setBackground(AppTheme.BG_DARK);
 
         buildScreens();
-        buildNavBar();
+        buildNavBar(username);
 
         add(mainPanel, BorderLayout.CENTER);
 
-        // Show the dashboard first
         showScreen(DASHBOARD);
         setVisible(true);
 
-        System.out.println("Personal Expense Tracker GUI started successfully.");
-        System.out.println("Loaded " + service.getAllExpenses().size() + " saved expense(s).");
+        System.out.println("Personal Expense Tracker GUI started for user: " + username);
     }
 
     // ──────────────────── Build all screen panels ────────────────────
@@ -101,7 +118,7 @@ public class ExpenseTrackerGUI extends JFrame {
 
     // ──────────────────── Top navigation bar ────────────────────
 
-    private void buildNavBar() {
+    private void buildNavBar(String username) {
         JPanel nav = ComponentFactory.darkPanel(new FlowLayout(FlowLayout.CENTER, 8, 8));
         nav.setBorder(BorderFactory.createMatteBorder(0, 0, 2, 0, AppTheme.PRIMARY));
 
@@ -111,7 +128,12 @@ public class ExpenseTrackerGUI extends JFrame {
         JButton btnSearch = ComponentFactory.primaryButton("Search");
         JButton btnReport = ComponentFactory.primaryButton("Monthly Report");
         JButton btnBudget = ComponentFactory.warningButton("Budget");
-        JButton btnExit   = ComponentFactory.dangerButton("Exit");
+
+        // User badge (right-aligned)
+        JLabel userLbl = ComponentFactory.label("\uD83D\uDC64 " + username);
+        userLbl.setForeground(AppTheme.TEXT_SECONDARY);
+
+        JButton btnExit = ComponentFactory.dangerButton("Logout");
 
         btnDash.addActionListener(e   -> showScreen(DASHBOARD));
         btnAdd.addActionListener(e    -> showScreen(ADD));
@@ -127,6 +149,8 @@ public class ExpenseTrackerGUI extends JFrame {
         nav.add(btnSearch);
         nav.add(btnReport);
         nav.add(btnBudget);
+        nav.add(Box.createHorizontalStrut(20));
+        nav.add(userLbl);
         nav.add(btnExit);
 
         add(nav, BorderLayout.NORTH);
@@ -141,24 +165,24 @@ public class ExpenseTrackerGUI extends JFrame {
     public void showScreen(String name) {
         switch (name) {
             case DASHBOARD: dashboardPanel.refresh();     break;
-            case VIEW:      viewExpensesPanel.refresh();   break;
-            case SEARCH:    searchExpensePanel.refresh();   break;
-            case REPORT:    monthlyReportPanel.refresh();   break;
-            case BUDGET:    budgetPanel.refresh();         break;
+            case VIEW:      viewExpensesPanel.refresh();  break;
+            case SEARCH:    searchExpensePanel.refresh(); break;
+            case REPORT:    monthlyReportPanel.refresh(); break;
+            case BUDGET:    budgetPanel.refresh();        break;
         }
         cardLayout.show(mainPanel, name);
     }
 
-    // ──────────────────── Exit ────────────────────
+    // ──────────────────── Exit / Logout ────────────────────
 
     private void exitApplication() {
         int choice = JOptionPane.showConfirmDialog(this,
-                "Are you sure you want to exit?\nAll expenses will be saved.",
-                "Exit Application",
+                "Are you sure you want to logout and exit?",
+                "Logout / Exit",
                 JOptionPane.YES_NO_OPTION, JOptionPane.QUESTION_MESSAGE);
         if (choice == JOptionPane.YES_OPTION) {
-            service.save();
-            System.out.println("Expenses saved. Goodbye!");
+            DBConnection.closeConnection();
+            System.out.println("Logged out. Goodbye!");
             System.exit(0);
         }
     }

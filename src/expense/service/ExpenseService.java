@@ -1,138 +1,223 @@
 package expense.service;
 
-import expense.model.Expense;
 import expense.model.Budget;
+import expense.model.Expense;
 import expense.model.Reportable;
 import expense.exception.InvalidExpenseException;
-import expense.util.ExpenseFileManager;
+import expense.dao.ExpenseDAO;
+import expense.dao.BudgetDAO;
 
-import java.io.IOException;
 import java.time.LocalDate;
 import java.time.YearMonth;
 import java.util.*;
-import java.util.stream.Collectors;
 
+/**
+ * ExpenseService – business-logic layer.
+ *
+ * All persistence is now handled via MySQL through ExpenseDAO / BudgetDAO.
+ * The existing public API (method signatures) is preserved so that all GUI
+ * panels continue to compile and work without changes.
+ *
+ * User context (userId) is set once after login via setCurrentUser().
+ */
 public class ExpenseService implements Reportable {
-    private List<Expense> expenses;
-    private Budget budget;
-    private int nextId;
-    private ExpenseFileManager fileManager;
+
+    // ── DAO layer ──
+    private final ExpenseDAO expenseDAO;
+    private final BudgetDAO  budgetDAO;
+
+    // ── Currently logged-in user ──
+    private int currentUserId = 1; // default for backward compatibility
 
     public ExpenseService() {
-        fileManager = new ExpenseFileManager();
-        expenses = fileManager.loadExpenses();
-        nextId = 1;
-        for (Expense e : expenses) nextId = Math.max(nextId, e.getId() + 1);
-        budget = new Budget(10000.0);
+        this.expenseDAO = new ExpenseDAO();
+        this.budgetDAO  = new BudgetDAO();
     }
 
+    // ─────────────────────────────────────────
+    //  User context
+    // ─────────────────────────────────────────
+
+    /** Called by LoginPanel after a successful login / registration. */
+    public void setCurrentUser(int userId) {
+        this.currentUserId = userId;
+    }
+
+    public int getCurrentUserId() {
+        return currentUserId;
+    }
+
+    // ─────────────────────────────────────────
+    //  ADD
+    // ─────────────────────────────────────────
+
+    /** Original signature – delegates with empty description. */
     public void addExpense(String title, String category, double amount, LocalDate date)
             throws InvalidExpenseException {
-        if (title == null || title.trim().isEmpty()) throw new InvalidExpenseException("Title cannot be empty.");
-        if (category == null || category.trim().isEmpty()) throw new InvalidExpenseException("Category cannot be empty.");
-        if (amount <= 0) throw new InvalidExpenseException("Amount must be greater than zero.");
-        if (date == null || date.isAfter(LocalDate.now())) throw new InvalidExpenseException("Enter a valid date (not in the future).");
-        expenses.add(new Expense(nextId++, title.trim(), category.trim(), amount, date));
-        save();
+        addExpense(title, category, amount, "", date);
     }
 
+    /** Extended signature with description. */
+    public void addExpense(String title, String category, double amount,
+                           String description, LocalDate date)
+            throws InvalidExpenseException {
+        if (title == null || title.trim().isEmpty())
+            throw new InvalidExpenseException("Title cannot be empty.");
+        if (category == null || category.trim().isEmpty())
+            throw new InvalidExpenseException("Category cannot be empty.");
+        if (amount <= 0)
+            throw new InvalidExpenseException("Amount must be greater than zero.");
+        if (date == null || date.isAfter(LocalDate.now()))
+            throw new InvalidExpenseException("Enter a valid date (not in the future).");
+
+        int id = expenseDAO.addExpense(currentUserId, title, amount, category, description, date);
+        if (id < 0) throw new InvalidExpenseException("Database error: could not save expense.");
+    }
+
+    // ─────────────────────────────────────────
+    //  READ
+    // ─────────────────────────────────────────
+
     public List<Expense> getAllExpenses() {
-        return new ArrayList<Expense>(expenses);
+        return expenseDAO.getAllExpenses(currentUserId);
+    }
+
+    public Expense findById(int id) {
+        return expenseDAO.findById(currentUserId, id);
     }
 
     public List<Expense> searchByCategory(String category) {
-        return expenses.stream()
-                .filter(e -> e.getCategory().equalsIgnoreCase(category))
-                .collect(Collectors.toList());
+        return expenseDAO.searchByCategory(currentUserId, category);
     }
 
-    public boolean updateExpense(int id, String title, String category, double amount, LocalDate date)
+    public List<Expense> searchByKeyword(String keyword) {
+        return expenseDAO.searchByKeyword(currentUserId, keyword);
+    }
+
+    public List<Expense> getExpensesByMonth(int month, int year) {
+        return expenseDAO.getExpensesByMonth(currentUserId, month, year);
+    }
+
+    // ─────────────────────────────────────────
+    //  SORT
+    // ─────────────────────────────────────────
+
+    public List<Expense> sortByAmount() {
+        return expenseDAO.getSortedByAmount(currentUserId);
+    }
+
+    public List<Expense> sortByDate() {
+        return expenseDAO.getSortedByDate(currentUserId);
+    }
+
+    // ─────────────────────────────────────────
+    //  UPDATE
+    // ─────────────────────────────────────────
+
+    /** Original signature – updates without changing description. */
+    public boolean updateExpense(int id, String title, String category,
+                                 double amount, LocalDate date)
             throws InvalidExpenseException {
-        Expense e = findById(id);
-        if (e == null) return false;
+        Expense existing = findById(id);
+        String desc = (existing != null) ? existing.getDescription() : "";
+        return updateExpense(id, title, category, amount, desc, date);
+    }
+
+    /** Extended signature including description. */
+    public boolean updateExpense(int id, String title, String category,
+                                 double amount, String description, LocalDate date)
+            throws InvalidExpenseException {
         if (title == null || title.trim().isEmpty() || category == null || category.trim().isEmpty())
             throw new InvalidExpenseException("Title and category cannot be empty.");
         if (amount <= 0 || date == null || date.isAfter(LocalDate.now()))
             throw new InvalidExpenseException("Enter a valid amount and date.");
-        e.setTitle(title.trim());
-        e.setCategory(category.trim());
-        e.setAmount(amount);
-        e.setDate(date);
-        save();
-        return true;
+        return expenseDAO.updateExpense(currentUserId, id, title, amount, category, description, date);
     }
+
+    // ─────────────────────────────────────────
+    //  DELETE
+    // ─────────────────────────────────────────
 
     public boolean deleteExpense(int id) {
-        boolean removed = expenses.removeIf(e -> e.getId() == id);
-        if (removed) save();
-        return removed;
+        return expenseDAO.deleteExpense(currentUserId, id);
     }
 
-    public Expense findById(int id) {
-        for (Expense e : expenses) if (e.getId() == id) return e;
-        return null;
-    }
-
-    public List<Expense> sortByAmount() {
-        return expenses.stream()
-                .sorted(Comparator.comparingDouble(Expense::getAmount))
-                .collect(Collectors.toList());
-    }
-
-    public List<Expense> sortByDate() {
-        List<Expense> result = getAllExpenses();
-        Collections.sort(result);
-        return result;
-    }
+    // ─────────────────────────────────────────
+    //  TOTALS / SUMMARY (Reportable)
+    // ─────────────────────────────────────────
 
     @Override
     public double calculateTotal() {
-        return expenses.stream().mapToDouble(Expense::getAmount).sum();
+        return expenseDAO.getGrandTotal(currentUserId);
     }
 
     public double calculateMonthlyTotal(YearMonth month) {
-        return expenses.stream()
-                .filter(e -> YearMonth.from(e.getDate()).equals(month))
-                .mapToDouble(Expense::getAmount).sum();
-    }
-
-    public Map<String, Double> categorySummary() {
-        Map<String, Double> summary = new TreeMap<String, Double>();
-        for (Expense e : expenses) {
-            String key = e.getCategory();
-            summary.put(key, summary.getOrDefault(key, 0.0) + e.getAmount());
-        }
-        return summary;
-    }
-
-    public Budget getBudget() { return budget; }
-
-    public void setMonthlyBudget(double amount) {
-        budget.setMonthlyLimit(amount);
+        return expenseDAO.getMonthlyTotal(currentUserId, month.getMonthValue(), month.getYear());
     }
 
     public double getCurrentMonthTotal() {
         return calculateMonthlyTotal(YearMonth.now());
     }
 
+    /** Returns a sorted map of category -> total amount. */
+    public Map<String, Double> categorySummary() {
+        Map<String, Double> summary = new TreeMap<String, Double>();
+        List<Object[]> rows = expenseDAO.getCategorySummary(currentUserId);
+        for (Object[] row : rows) {
+            summary.put((String) row[0], (Double) row[1]);
+        }
+        return summary;
+    }
+
+    // ─────────────────────────────────────────
+    //  BUDGET
+    // ─────────────────────────────────────────
+
+    public Budget getBudget() {
+        YearMonth now = YearMonth.now();
+        return budgetDAO.getOverallBudget(currentUserId, now.getMonthValue(), now.getYear());
+    }
+
+    public void setMonthlyBudget(double amount) {
+        if (amount <= 0) throw new IllegalArgumentException("Budget must be greater than zero.");
+        YearMonth now = YearMonth.now();
+        budgetDAO.setOrUpdateBudget(currentUserId, "Overall", amount,
+                now.getMonthValue(), now.getYear());
+    }
+
+    public void setMonthlyBudget(String category, double amount, int month, int year) {
+        if (amount <= 0) throw new IllegalArgumentException("Budget must be greater than zero.");
+        budgetDAO.setOrUpdateBudget(currentUserId, category, amount, month, year);
+    }
+
+    public double getBudgetForMonth(String category, int month, int year) {
+        Budget b = budgetDAO.getBudget(currentUserId, category, month, year);
+        return (b != null) ? b.getMonthlyLimit() : 0.0;
+    }
+
+    // ─────────────────────────────────────────
+    //  Reportable.displayReport
+    // ─────────────────────────────────────────
+
     @Override
     public void displayReport() {
-        System.out.println("\\n========== EXPENSE REPORT ==========");
-        System.out.printf("Overall total : ₹%.2f%n", calculateTotal());
-        System.out.printf("This month    : ₹%.2f%n", getCurrentMonthTotal());
-        System.out.println("\\nCategory-wise totals:");
+        System.out.println("\n========== EXPENSE REPORT ==========");
+        System.out.printf("Overall total : \u20B9%.2f%n", calculateTotal());
+        System.out.printf("This month    : \u20B9%.2f%n", getCurrentMonthTotal());
+        System.out.println("\nCategory-wise totals:");
         Map<String, Double> summary = categorySummary();
         if (summary.isEmpty()) System.out.println("No expenses recorded.");
-        summary.forEach((category, total) ->
-                System.out.printf("%-18s ₹%.2f%n", category, total));
+        for (Map.Entry<String, Double> e : summary.entrySet())
+            System.out.printf("%-18s \u20B9%.2f%n", e.getKey(), e.getValue());
         System.out.println("====================================");
     }
 
+    /**
+     * No-op – file saving is replaced by DB persistence.
+     * Kept so existing callers (exitApplication, console app) don't break.
+     */
     public void save() {
-        try {
-            fileManager.saveExpenses(expenses);
-        } catch (IOException e) {
-            System.out.println("Unable to save expenses: " + e.getMessage());
-        }
+        // Data is already persisted in MySQL; nothing to do here.
+        System.out.println("[ExpenseService] Data persisted in MySQL.");
     }
 }
