@@ -1,6 +1,6 @@
 package expense.dao;
 
-import expense.database.DBConnection;
+import expense.database.DatabaseConnection;
 import expense.model.Budget;
 
 import java.sql.*;
@@ -8,146 +8,141 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * BudgetDAO – CRUD operations for the `budgets` table.
- *
- * Each budget row stores: user_id, category, monthly_limit, month, year.
- * An "Overall" budget covers the global monthly spending limit.
+ * Data Access Object for the 'budgets' table.
+ * All queries use PreparedStatement.
  */
 public class BudgetDAO {
 
-    // ──────────────────────── CREATE / UPSERT ────────────────────────
+    // ----------------------------------------------------------------
+    // CREATE
+    // ----------------------------------------------------------------
+    /** Inserts a new budget row and returns the generated ID. */
+    public int addBudget(Budget budget) throws SQLException {
+        String sql = "INSERT INTO budgets (category, monthly_limit, month, year) "
+                   + "VALUES (?, ?, ?, ?)";
+        Connection conn = DatabaseConnection.getConnection();
+        try (PreparedStatement ps = conn.prepareStatement(sql, Statement.RETURN_GENERATED_KEYS)) {
+            ps.setString(1, budget.getCategory());
+            ps.setDouble(2, budget.getMonthlyLimit());
+            ps.setInt(3, budget.getMonth());
+            ps.setInt(4, budget.getYear());
+            ps.executeUpdate();
 
-    /**
-     * Sets (inserts or updates) a budget for a given category + month + year.
-     * Uses MySQL's INSERT ... ON DUPLICATE KEY UPDATE pattern via unique index.
-     *
-     * @return the budget_id on success, -1 on failure.
-     */
-    public int setOrUpdateBudget(int userId, String category, double monthlyLimit,
-                                  int month, int year) {
-        // First check if a budget already exists for this user/category/month/year
-        Budget existing = getBudget(userId, category, month, year);
-        if (existing != null) {
-            // Update
-            String sql = "UPDATE budgets SET monthly_limit = ? " +
-                         "WHERE user_id = ? AND category = ? AND month = ? AND year = ?";
-            try (Connection conn = DBConnection.getConnection();
-                 PreparedStatement ps = conn.prepareStatement(sql)) {
-
-                ps.setDouble(1, monthlyLimit);
-                ps.setInt(2, userId);
-                ps.setString(3, category);
-                ps.setInt(4, month);
-                ps.setInt(5, year);
-                ps.executeUpdate();
-                return existing.getBudgetId();
-            } catch (SQLException e) {
-                System.err.println("[BudgetDAO] updateBudget error: " + e.getMessage());
-            }
-        } else {
-            // Insert
-            String sql = "INSERT INTO budgets (user_id, category, monthly_limit, month, year) " +
-                         "VALUES (?, ?, ?, ?, ?)";
-            try (Connection conn = DBConnection.getConnection();
-                 PreparedStatement ps = conn.prepareStatement(sql, Statement.RETURN_GENERATED_KEYS)) {
-
-                ps.setInt(1, userId);
-                ps.setString(2, category);
-                ps.setDouble(3, monthlyLimit);
-                ps.setInt(4, month);
-                ps.setInt(5, year);
-                int rows = ps.executeUpdate();
-                if (rows > 0) {
-                    ResultSet keys = ps.getGeneratedKeys();
-                    if (keys.next()) return keys.getInt(1);
-                }
-            } catch (SQLException e) {
-                System.err.println("[BudgetDAO] insertBudget error: " + e.getMessage());
+            try (ResultSet rs = ps.getGeneratedKeys()) {
+                if (rs.next()) return rs.getInt(1);
             }
         }
         return -1;
     }
 
-    // ──────────────────────── READ ────────────────────────
+    // ----------------------------------------------------------------
+    // READ
+    // ----------------------------------------------------------------
+    /** Returns all budgets ordered by year and month descending. */
+    public List<Budget> getAllBudgets() throws SQLException {
+        List<Budget> list = new ArrayList<Budget>();
+        String sql = "SELECT id, category, monthly_limit, month, year "
+                   + "FROM budgets ORDER BY year DESC, month DESC";
+        Connection conn = DatabaseConnection.getConnection();
+        try (PreparedStatement ps = conn.prepareStatement(sql);
+             ResultSet rs = ps.executeQuery()) {
+            while (rs.next()) {
+                list.add(mapRow(rs));
+            }
+        }
+        return list;
+    }
 
-    /**
-     * Retrieves the budget for a specific category/month/year.
-     * Returns null if none has been set.
-     */
-    public Budget getBudget(int userId, String category, int month, int year) {
-        String sql = "SELECT budget_id, user_id, category, monthly_limit, month, year " +
-                     "FROM budgets WHERE user_id = ? AND category = ? AND month = ? AND year = ?";
-        try (Connection conn = DBConnection.getConnection();
-             PreparedStatement ps = conn.prepareStatement(sql)) {
-
-            ps.setInt(1, userId);
-            ps.setString(2, category);
-            ps.setInt(3, month);
-            ps.setInt(4, year);
-            ResultSet rs = ps.executeQuery();
-            if (rs.next()) return mapRow(rs);
-        } catch (SQLException e) {
-            System.err.println("[BudgetDAO] getBudget error: " + e.getMessage());
+    /** Returns a single budget by ID, or null. */
+    public Budget getBudgetById(int id) throws SQLException {
+        String sql = "SELECT id, category, monthly_limit, month, year FROM budgets WHERE id = ?";
+        Connection conn = DatabaseConnection.getConnection();
+        try (PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setInt(1, id);
+            try (ResultSet rs = ps.executeQuery()) {
+                if (rs.next()) return mapRow(rs);
+            }
         }
         return null;
     }
 
     /**
-     * Returns the "Overall" budget for the current month/year.
-     * Returns a default Budget of 10000 if none is stored yet.
+     * Returns the budget for a specific category, month, and year (or null).
+     * Useful when checking whether a budget already exists before inserting.
      */
-    public Budget getOverallBudget(int userId, int month, int year) {
-        Budget b = getBudget(userId, "Overall", month, year);
-        return (b != null) ? b : new Budget(10000.0); // sensible default
-    }
-
-    /**
-     * Returns all budgets set by a user for any month/year.
-     */
-    public List<Budget> getAllBudgets(int userId) {
-        List<Budget> list = new ArrayList<Budget>();
-        String sql = "SELECT budget_id, user_id, category, monthly_limit, month, year " +
-                     "FROM budgets WHERE user_id = ? ORDER BY year DESC, month DESC";
-        try (Connection conn = DBConnection.getConnection();
-             PreparedStatement ps = conn.prepareStatement(sql)) {
-
-            ps.setInt(1, userId);
-            ResultSet rs = ps.executeQuery();
-            while (rs.next()) list.add(mapRow(rs));
-        } catch (SQLException e) {
-            System.err.println("[BudgetDAO] getAllBudgets error: " + e.getMessage());
+    public Budget getBudgetByCategoryMonthYear(String category, int month, int year)
+            throws SQLException {
+        String sql = "SELECT id, category, monthly_limit, month, year FROM budgets "
+                   + "WHERE LOWER(category) = LOWER(?) AND month = ? AND year = ?";
+        Connection conn = DatabaseConnection.getConnection();
+        try (PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setString(1, category);
+            ps.setInt(2, month);
+            ps.setInt(3, year);
+            try (ResultSet rs = ps.executeQuery()) {
+                if (rs.next()) return mapRow(rs);
+            }
         }
-        return list;
+        return null;
     }
 
-    // ──────────────────────── DELETE ────────────────────────
-
-    /**
-     * Deletes a budget record by its ID.
-     */
-    public boolean deleteBudget(int budgetId) {
-        String sql = "DELETE FROM budgets WHERE budget_id = ?";
-        try (Connection conn = DBConnection.getConnection();
-             PreparedStatement ps = conn.prepareStatement(sql)) {
-
-            ps.setInt(1, budgetId);
-            return ps.executeUpdate() == 1;
-        } catch (SQLException e) {
-            System.err.println("[BudgetDAO] deleteBudget error: " + e.getMessage());
+    // ----------------------------------------------------------------
+    // UPDATE
+    // ----------------------------------------------------------------
+    /** Updates an existing budget row. Returns true if a row was affected. */
+    public boolean updateBudget(Budget budget) throws SQLException {
+        String sql = "UPDATE budgets SET category=?, monthly_limit=?, month=?, year=? WHERE id=?";
+        Connection conn = DatabaseConnection.getConnection();
+        try (PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setString(1, budget.getCategory());
+            ps.setDouble(2, budget.getMonthlyLimit());
+            ps.setInt(3, budget.getMonth());
+            ps.setInt(4, budget.getYear());
+            ps.setInt(5, budget.getId());
+            return ps.executeUpdate() > 0;
         }
-        return false;
     }
 
-    // ──────────────────────── Helper ────────────────────────
+    // ----------------------------------------------------------------
+    // DELETE
+    // ----------------------------------------------------------------
+    /** Deletes a budget by ID. Returns true if a row was deleted. */
+    public boolean deleteBudget(int id) throws SQLException {
+        String sql = "DELETE FROM budgets WHERE id = ?";
+        Connection conn = DatabaseConnection.getConnection();
+        try (PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setInt(1, id);
+            return ps.executeUpdate() > 0;
+        }
+    }
 
+    // ----------------------------------------------------------------
+    // Helper
+    // ----------------------------------------------------------------
+    /** Returns the total monthly_limit for the given month/year across all categories. */
+    public double getTotalBudget(int month, int year) throws SQLException {
+        String sql = "SELECT COALESCE(SUM(monthly_limit), 0) FROM budgets "
+                   + "WHERE month = ? AND year = ?";
+        Connection conn = DatabaseConnection.getConnection();
+        try (PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setInt(1, month);
+            ps.setInt(2, year);
+            try (ResultSet rs = ps.executeQuery()) {
+                if (rs.next()) return rs.getDouble(1);
+            }
+        }
+        return 0.0;
+    }
+
+    // ----------------------------------------------------------------
+    // Private mapper
+    // ----------------------------------------------------------------
     private Budget mapRow(ResultSet rs) throws SQLException {
         return new Budget(
-            rs.getInt("budget_id"),
-            rs.getInt("user_id"),
-            rs.getString("category"),
-            rs.getDouble("monthly_limit"),
-            rs.getInt("month"),
-            rs.getInt("year")
-        );
+                rs.getInt("id"),
+                rs.getString("category"),
+                rs.getDouble("monthly_limit"),
+                rs.getInt("month"),
+                rs.getInt("year"));
     }
 }

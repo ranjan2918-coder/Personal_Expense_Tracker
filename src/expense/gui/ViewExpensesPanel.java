@@ -25,7 +25,7 @@ public class ViewExpensesPanel extends JPanel {
     private JLabel totalLabel;
     private JLabel countLabel;
 
-    private static final String[] COLUMNS = {"ID", "Title", "Category", "Amount (₹)", "Date", "Description"};
+    private static final String[] COLUMNS = {"ID", "Title", "Category", "Amount (\u20B9)", "Date"};
 
     public ViewExpensesPanel(ExpenseService service, ExpenseTrackerGUI frame) {
         this.service = service;
@@ -55,11 +55,10 @@ public class ViewExpensesPanel extends JPanel {
         tableModel = new DefaultTableModel(COLUMNS, 0);
         table = ComponentFactory.styledTable(tableModel);
         table.getColumnModel().getColumn(0).setPreferredWidth(50);
-        table.getColumnModel().getColumn(1).setPreferredWidth(180);
-        table.getColumnModel().getColumn(2).setPreferredWidth(110);
-        table.getColumnModel().getColumn(3).setPreferredWidth(90);
-        table.getColumnModel().getColumn(4).setPreferredWidth(100);
-        table.getColumnModel().getColumn(5).setPreferredWidth(200);
+        table.getColumnModel().getColumn(1).setPreferredWidth(200);
+        table.getColumnModel().getColumn(2).setPreferredWidth(120);
+        table.getColumnModel().getColumn(3).setPreferredWidth(100);
+        table.getColumnModel().getColumn(4).setPreferredWidth(110);
 
         add(ComponentFactory.tableScrollPane(table), BorderLayout.CENTER);
 
@@ -98,14 +97,12 @@ public class ViewExpensesPanel extends JPanel {
         for (Expense e : expenses) {
             tableModel.addRow(new Object[]{
                     e.getId(), e.getTitle(), e.getCategory(),
-                    String.format("%.2f", e.getAmount()),
-                    e.getDate().format(fmt),
-                    e.getDescription()
+                    String.format("%.2f", e.getAmount()), e.getDate().format(fmt)
             });
             total += e.getAmount();
         }
         countLabel.setText("Records: " + expenses.size());
-        totalLabel.setText(String.format("Total: ₹%.2f", total));
+        totalLabel.setText(String.format("Total: \u20B9%.2f", total));
     }
 
     /** Public refresh called when navigating to this screen. */
@@ -131,7 +128,7 @@ public class ViewExpensesPanel extends JPanel {
         }
 
         // Build update dialog
-        JPanel form = new JPanel(new GridLayout(5, 2, 8, 8));
+        JPanel form = new JPanel(new GridLayout(4, 2, 8, 8));
         form.setBackground(AppTheme.BG_CARD);
         JTextField tTitle = ComponentFactory.textField(18);
         tTitle.setText(existing.getTitle());
@@ -141,14 +138,11 @@ public class ViewExpensesPanel extends JPanel {
         tAmt.setText(String.valueOf(existing.getAmount()));
         JTextField tDate = ComponentFactory.textField(18);
         tDate.setText(existing.getDate().toString());
-        JTextField tDesc = ComponentFactory.textField(18);
-        tDesc.setText(existing.getDescription());
 
         form.add(ComponentFactory.label("Title"));  form.add(tTitle);
         form.add(ComponentFactory.label("Category")); form.add(tCat);
         form.add(ComponentFactory.label("Amount")); form.add(tAmt);
         form.add(ComponentFactory.label("Date (yyyy-MM-dd)")); form.add(tDate);
-        form.add(ComponentFactory.label("Description")); form.add(tDesc);
 
         int result = JOptionPane.showConfirmDialog(this, form, "Update Expense #" + id,
                 JOptionPane.OK_CANCEL_OPTION, JOptionPane.PLAIN_MESSAGE);
@@ -172,8 +166,7 @@ public class ViewExpensesPanel extends JPanel {
                 return;
             }
             boolean updated = service.updateExpense(id,
-                    tTitle.getText().trim(), tCat.getText().trim(),
-                    amount, tDesc.getText().trim(), date);
+                    tTitle.getText().trim(), tCat.getText().trim(), amount, date);
             if (updated) {
                 JOptionPane.showMessageDialog(this, "Expense updated successfully.");
                 refresh();

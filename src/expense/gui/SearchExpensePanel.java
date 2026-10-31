@@ -22,7 +22,7 @@ public class SearchExpensePanel extends JPanel {
     private JTable table;
     private JLabel resultLabel;
 
-    private static final String[] COLUMNS = {"ID", "Title", "Category", "Amount (₹)", "Date", "Description"};
+    private static final String[] COLUMNS = {"ID", "Title", "Category", "Amount (\u20B9)", "Date"};
 
     public SearchExpensePanel(ExpenseService service, ExpenseTrackerGUI frame) {
         this.service = service;
@@ -40,17 +40,14 @@ public class SearchExpensePanel extends JPanel {
 
         // Search bar
         JPanel searchBar = ComponentFactory.darkPanel(new FlowLayout(FlowLayout.RIGHT, 8, 0));
-        searchField = ComponentFactory.textField(16);
-        JButton searchCatBtn = ComponentFactory.primaryButton("By Category");
-        searchCatBtn.addActionListener(e -> performCategorySearch());
-        JButton searchKwBtn = ComponentFactory.accentButton("By Keyword");
-        searchKwBtn.addActionListener(e -> performKeywordSearch());
+        searchField = ComponentFactory.textField(18);
+        JButton searchBtn = ComponentFactory.primaryButton("Search");
+        searchBtn.addActionListener(e -> performSearch());
         JButton clearBtn = ComponentFactory.dangerButton("Clear");
         clearBtn.addActionListener(e -> clearSearch());
-        searchBar.add(ComponentFactory.label("Search: "));
+        searchBar.add(ComponentFactory.label("Category: "));
         searchBar.add(searchField);
-        searchBar.add(searchCatBtn);
-        searchBar.add(searchKwBtn);
+        searchBar.add(searchBtn);
         searchBar.add(clearBtn);
         top.add(searchBar, BorderLayout.EAST);
 
@@ -68,10 +65,10 @@ public class SearchExpensePanel extends JPanel {
         add(bottom, BorderLayout.SOUTH);
 
         // Allow pressing Enter in the search field
-        searchField.addActionListener(e -> performCategorySearch());
+        searchField.addActionListener(e -> performSearch());
     }
 
-    private void performCategorySearch() {
+    private void performSearch() {
         String category = searchField.getText().trim();
         if (category.isEmpty()) {
             resultLabel.setText("Please enter a category name.");
@@ -85,28 +82,7 @@ public class SearchExpensePanel extends JPanel {
             resultLabel.setForeground(AppTheme.WARNING);
         } else {
             double sum = results.stream().mapToDouble(Expense::getAmount).sum();
-            resultLabel.setText(String.format("Category '%s': %d expense(s) | Total: ₹%.2f",
-                    category, results.size(), sum));
-            resultLabel.setForeground(AppTheme.ACCENT);
-        }
-    }
-
-    private void performKeywordSearch() {
-        String keyword = searchField.getText().trim();
-        if (keyword.isEmpty()) {
-            resultLabel.setText("Please enter a keyword to search.");
-            resultLabel.setForeground(AppTheme.WARNING);
-            return;
-        }
-        List<Expense> results = service.searchByKeyword(keyword);
-        loadData(results);
-        if (results.isEmpty()) {
-            resultLabel.setText("No expenses found for keyword: \"" + keyword + "\"");
-            resultLabel.setForeground(AppTheme.WARNING);
-        } else {
-            double sum = results.stream().mapToDouble(Expense::getAmount).sum();
-            resultLabel.setText(String.format("Keyword '%s': %d expense(s) | Total: ₹%.2f",
-                    keyword, results.size(), sum));
+            resultLabel.setText(String.format("Found %d expense(s) | Total: \u20B9%.2f", results.size(), sum));
             resultLabel.setForeground(AppTheme.ACCENT);
         }
     }
@@ -117,9 +93,7 @@ public class SearchExpensePanel extends JPanel {
         for (Expense e : expenses) {
             tableModel.addRow(new Object[]{
                     e.getId(), e.getTitle(), e.getCategory(),
-                    String.format("%.2f", e.getAmount()),
-                    e.getDate().format(fmt),
-                    e.getDescription()
+                    String.format("%.2f", e.getAmount()), e.getDate().format(fmt)
             });
         }
     }

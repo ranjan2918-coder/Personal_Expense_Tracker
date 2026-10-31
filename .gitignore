@@ -2,8 +2,7 @@
 bin/
 *.class
 
-# Eclipse IDE files
-.classpath
+# Eclipse IDE files (keep .classpath tracked so the JAR path is recorded)
 .project
 .settings/
 
@@ -16,5 +15,8 @@ bin/
 .DS_Store
 Thumbs.db
 
-# Data files (optional - remove if you want to track)
+# Legacy data file – no longer used (DB replaced file storage)
 expenses.txt
+
+# JAR files (too large for git – download separately per README Step 1)
+lib/*.jar
